@@ -7,6 +7,7 @@
 *.pt
 *.pth
 *.bak
+*.swp
 .idea/
 __pycache__/
 checkpoint/
