@@ -39,7 +39,7 @@ class Model:
             return self.build_scaling_model(unet_depth=unet_depth, bn=bn, activation=activation)
 
     def build_fcn_model(self, unet_depth, bn, activation):
-        input_layer = tf.keras.layers.Input(shape=(self.cfg.input_rows, self.cfg.input_cols, self.cfg.input_channels))
+        input_layer = tf.keras.layers.Input(shape=(self.cfg.input_rows, self.cfg.input_cols, self.cfg.input_channels), name='input')
         x = input_layer
         xs = []
         channels, n_convs = self.infos[0]
@@ -64,7 +64,7 @@ class Model:
         return tf.keras.models.Model(input_layer, output_layer)
 
     def build_scaling_model(self, unet_depth, bn, activation):
-        input_layer = tf.keras.layers.Input(shape=(self.cfg.input_rows, self.cfg.input_cols, self.cfg.input_channels))
+        input_layer = tf.keras.layers.Input(shape=(self.cfg.input_rows, self.cfg.input_cols, self.cfg.input_channels), name='input')
         x = input_layer
         xs = []
         channels, n_convs = self.infos[0]
