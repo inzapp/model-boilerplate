@@ -32,11 +32,14 @@ class Model:
         self.cfg = cfg
         self.infos = [[16, 1], [32, 1], [64, 1], [128, 1], [256, 1], [512, 1]]
 
-    def build(self, unet_depth=3, fcn=True, bn=False, activation='leaky'):
-        if fcn:
-            return self.build_fcn_model(unet_depth=unet_depth, bn=bn, activation=activation)
-        else:
-            return self.build_scaling_model(unet_depth=unet_depth, bn=bn, activation=activation)
+    def build(self, strategy, optimizer, unet_depth=3, fcn=True, bn=False, activation='leaky'):
+        with strategy.scope():
+            if fcn:
+                model = self.build_fcn_model(unet_depth=unet_depth, bn=bn, activation=activation)
+            else:
+                model = self.build_scaling_model(unet_depth=unet_depth, bn=bn, activation=activation)
+            model.compile(optimizer=optimizer)
+        return model
 
     def build_fcn_model(self, unet_depth, bn, activation):
         input_layer = tf.keras.layers.Input(shape=(self.cfg.input_rows, self.cfg.input_cols, self.cfg.input_channels), name='input')

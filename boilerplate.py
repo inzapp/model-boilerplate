@@ -61,7 +61,7 @@ class TrainingConfig:
         for key, value in self.__d.items():
             setattr(self, key, value)
 
-    def get_config(self, cfg, key, default, parse_type, required):
+    def __get_value_from_yaml(self, cfg, key, default, parse_type, required):
         try:
             value = parse_type(cfg[key])
             if parse_type is str and value.lower() in ['none', 'null']:
@@ -87,25 +87,28 @@ class TrainingConfig:
             cfg = yaml.load(f, Loader=yaml.FullLoader)
 
         d = {}
-        d['pretrained_model_path'] = self.get_config(cfg, 'pretrained_model_path', '', str, required=False)
-        d['train_data_path'] = self.get_config(cfg, 'train_data_path', None, str, required=True)
-        d['validation_data_path'] = self.get_config(cfg, 'validation_data_path', None, str, required=True)
-        d['input_rows'] = self.get_config(cfg, 'input_rows', None, int, required=True)
-        d['input_cols'] = self.get_config(cfg, 'input_cols', None, int, required=True)
-        d['input_channels'] = self.get_config(cfg, 'input_channels', None, int, required=True)
-        d['model_name'] = self.get_config(cfg, 'model_name', 'model', str, required=False)
-        d['lr_policy'] = self.get_config(cfg, 'lr_policy', 'step', str, required=False)
-        d['lr'] = self.get_config(cfg, 'lr', None, float, required=True)
-        d['lrf'] = self.get_config(cfg, 'lrf', 0.05, float, required=False)
-        d['l2'] = self.get_config(cfg, 'l2', 0.0005, float, required=False)
-        warm_up = self.get_config(cfg, 'warm_up', 1000, float, required=False)
+        d['devices'] = self.__get_value_from_yaml(cfg, 'devices', [], list, required=True)
+        d['pretrained_model_path'] = self.__get_value_from_yaml(cfg, 'pretrained_model_path', '', str, required=False)
+        d['train_data_path'] = self.__get_value_from_yaml(cfg, 'train_data_path', None, str, required=True)
+        d['validation_data_path'] = self.__get_value_from_yaml(cfg, 'validation_data_path', None, str, required=True)
+        d['input_rows'] = self.__get_value_from_yaml(cfg, 'input_rows', None, int, required=True)
+        d['input_cols'] = self.__get_value_from_yaml(cfg, 'input_cols', None, int, required=True)
+        d['input_channels'] = self.__get_value_from_yaml(cfg, 'input_channels', None, int, required=True)
+        d['model_name'] = self.__get_value_from_yaml(cfg, 'model_name', 'model', str, required=False)
+        d['optimizer_str'] = self.__get_value_from_yaml(cfg, 'optimizer', 'sgd', str, required=True)
+        d['lr_policy'] = self.__get_value_from_yaml(cfg, 'lr_policy', 'step', str, required=False)
+        d['lr'] = self.__get_value_from_yaml(cfg, 'lr', None, float, required=True)
+        d['lrf'] = self.__get_value_from_yaml(cfg, 'lrf', 0.05, float, required=False)
+        d['l2'] = self.__get_value_from_yaml(cfg, 'l2', 0.0005, float, required=False)
+        warm_up = self.__get_value_from_yaml(cfg, 'warm_up', 1000, float, required=False)
         d['warm_up'] = float(warm_up) if 0.0 <= warm_up <= 1.0 else int(warm_up)
-        d['momentum'] = self.get_config(cfg, 'momentum', 0.9, float, required=False)
-        d['batch_size'] = self.get_config(cfg, 'batch_size', None, int, required=True)
-        d['max_q_size'] = self.get_config(cfg, 'max_q_size', 1024, int, required=False)
-        d['iterations'] = self.get_config(cfg, 'iterations', None, int, required=True)
-        d['checkpoint_interval'] = self.get_config(cfg, 'checkpoint_interval', 0, int, required=False)
-        d['training_view'] = self.get_config(cfg, 'training_view', False, bool, required=False)
+        d['momentum'] = self.__get_value_from_yaml(cfg, 'momentum', 0.9, float, required=False)
+        d['batch_size'] = self.__get_value_from_yaml(cfg, 'batch_size', None, int, required=True)
+        d['max_q_size'] = self.__get_value_from_yaml(cfg, 'max_q_size', 1024, int, required=False)
+        d['iterations'] = self.__get_value_from_yaml(cfg, 'iterations', None, int, required=True)
+        d['checkpoint_interval'] = self.__get_value_from_yaml(cfg, 'checkpoint_interval', 0, int, required=False)
+        d['training_view'] = self.__get_value_from_yaml(cfg, 'training_view', False, bool, required=False)
+        d['fix_seed'] = self.__get_value_from_yaml(cfg, 'fix_seed', False, bool, required=False)
         return d
 
     def save(self, cfg_path):
@@ -126,6 +129,9 @@ class Boilerplate(CheckpointManager):
         if self.cfg.checkpoint_interval == 0:
             self.cfg.checkpoint_interval = self.cfg.iterations
 
+        if self.cfg.fix_seed:
+            self.set_global_seed()
+
         self.set_model_name(self.cfg.model_name)
         self.training_view_previous_time = time()
 
@@ -137,11 +143,14 @@ class Boilerplate(CheckpointManager):
             print(f'validation image path is not valid : {self.cfg.validation_data_path}')
             exit(0)
 
+        self.strategy, self.primary_context = self.get_context(self.cfg.devices)
+        self.optimizer = self.get_optimizer(self.cfg.optimizer_str, self.cfg.lr, self.cfg.momentum, self.cfg.lr_policy)
+
         self.pretrained_iteration_count = 0
         if self.cfg.pretrained_model_path is None:
-            self.model = Model(cfg=self.cfg).build()
+            self.model = Model(cfg=self.cfg).build(self.strategy, self.optimizer)
         else:
-            self.model, pretrained_iteration_count = self.load_model(self.cfg.pretrained_model_path)
+            self.model, pretrained_iteration_count = self.load_model(self.cfg.pretrained_model_path, self.strategy, self.optimizer)
             self.pretrained_iteration_count = pretrained_iteration_count
             print(f'load model success => {self.cfg.pretrained_model_path}')
 
@@ -153,8 +162,51 @@ class Boilerplate(CheckpointManager):
         np.random.seed(seed)
         os.environ['PYTHONHASHSEED'] = str(seed)
         tf.random.set_seed(seed)
+        print(f'global seed fixed to {seed}')
 
-    def load_model(self, path):
+    def get_context(self, user_devices):
+        strategy = None
+        primary_context = None
+        if len(user_devices) == 0:
+            tf.config.set_visible_devices([], 'GPU')
+            primary_context = tf.device('/cpu:0')
+            strategy = tf.distribute.get_strategy()
+        else:
+            tf.keras.backend.clear_session()
+            tf.config.set_soft_device_placement(True)
+            physical_devices = tf.config.list_physical_devices('GPU')
+
+            available_device_indices = list(map(int, [int(device.name.split(':')[-1]) for device in physical_devices]))
+
+            visible_devices = []
+            for user_device_index in user_devices:
+                if user_device_index not in available_device_indices:
+                    print(f'invalid device index {user_device_index}. available device indices : {available_device_indices}')
+                    exit(-1)
+                else:
+                    visible_devices.append(physical_devices[user_device_index])
+            tf.config.set_visible_devices(visible_devices, 'GPU')
+
+            primary_device = user_devices[0]
+            primary_context = tf.device(f'/gpu:{primary_device}')
+            if len(user_devices) == 1:
+                strategy = tf.distribute.get_strategy()
+            else:
+                strategy = tf.distribute.MirroredStrategy(devices=[f'/gpu:{i}' for i in user_devices])
+        return strategy, primary_context
+
+    def get_optimizer(self, optimizer_str, lr, momentum, lr_policy):
+        available_optimizer_strs = ['sgd', 'adam']
+        optimizer_str = optimizer_str.lower()
+        assert optimizer_str in available_optimizer_strs, f'invalid optimizer {optimizer_str}, available optimizers : {available_optimizer_strs}'
+        lr = lr if lr_policy == 'constant' else 0.0
+        if optimizer_str == 'sgd':
+            optimizer = tf.keras.optimizers.SGD(learning_rate=lr, momentum=momentum, nesterov=True)
+        elif optimizer_str == 'adam':
+            optimizer = tf.keras.optimizers.Adam(learning_rate=lr, beta_1=momentum)
+        return optimizer
+
+    def load_model(self, path, strategy, optimizer):
         if path == 'auto':
             auto_model_path = None
             if auto_model_path is None:
@@ -169,7 +221,9 @@ class Boilerplate(CheckpointManager):
             print(f'file not found : {self.cfg.pretrained_model_path}')
             exit(0)
 
-        model = tf.keras.models.load_model(path, compile=False, custom_objects={'tf': tf})
+        with strategy.scope():
+            model = tf.keras.models.load_model(path, compile=False, custom_objects={'tf': tf})
+            model.compile(optimizer=optimizer)
         input_shape = model.input_shape[1:]
         self.cfg.set_config('input_rows', input_shape[0])
         self.cfg.set_config('input_cols', input_shape[1])
@@ -185,12 +239,20 @@ class Boilerplate(CheckpointManager):
             return (path is not None) and os.path.exists(path) and os.path.isdir(path)
 
     @tf.function
-    def compute_gradient(self, model, optimizer, x, y_true):
+    def compute_gradient(self, args):
+        _, _, model, optimizer, x, y_true = args
         with tf.GradientTape() as tape:
             y_pred = model(x, training=True)
             loss = tf.reduce_mean(tf.square(y_true - y_pred))
         gradients = tape.gradient(loss, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+        return loss
+
+    @tf.function
+    def compute_gradient_distributed(self, args):
+        strategy, train_step, *_ = args
+        loss = strategy.run(train_step, args=(args,))
+        loss = strategy.reduce(tf.distribute.ReduceOp.MEAN, loss, axis=None)
         return loss
 
     @tf.function
@@ -213,7 +275,8 @@ class Boilerplate(CheckpointManager):
         for path in tqdm(data_paths):
             x, y_true = self.validation_data_generator.load_xy(path)
             x = np.asarray(x).reshape((1,) + x.shape)
-            y_pred = np.array(self.graph_forward(self.model, x)[0])
+            with self.primary_context:
+                y_pred = np.array(self.graph_forward(self.model, x)[0])
             loss = np.mean(np.abs(y_true - y_pred) ** 2.0)
             loss_sum += loss
         loss_avg = loss_sum  / len(data_paths)
@@ -249,15 +312,18 @@ class Boilerplate(CheckpointManager):
         self.init_checkpoint_dir()
         self.cfg.save(f'{self.checkpoint_path}/cfg.yaml')
         iteration_count = self.pretrained_iteration_count
-        optimizer = tf.keras.optimizers.Adam(learning_rate=self.cfg.lr)
+        if len(self.cfg.devices) <= 1:
+            train_step = self.compute_gradient
+        else:
+            train_step = self.compute_gradient_distributed
         lr_scheduler = LRScheduler(lr=self.cfg.lr, iterations=self.cfg.iterations, warm_up=self.cfg.warm_up, policy='step')
         eta_calculator = ETACalculator(iterations=self.cfg.iterations)
         eta_calculator.start()
         self.train_data_generator.start()
         while True:
             batch_x, batch_y = self.train_data_generator.load()
-            lr_scheduler.update(optimizer, iteration_count)
-            loss = self.compute_gradient(self.model, optimizer, batch_x, batch_y)
+            lr_scheduler.update(self.optimizer, iteration_count)
+            loss = train_step((self.strategy, self.compute_gradient, self.model, self.optimizer, batch_x, batch_y))
             iteration_count += 1
             progress_str = eta_calculator.update(iteration_count)
             self.print_loss(progress_str, loss)
