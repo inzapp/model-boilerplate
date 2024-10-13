@@ -17,5 +17,5 @@ batch_size: 32
 max_q_size: 1024
 iterations: 10000
 checkpoint_interval: 2000
-training_view: true
+show_progress: true
 fix_seed: false

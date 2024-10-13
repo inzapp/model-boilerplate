@@ -106,7 +106,7 @@ class TrainingConfig:
         d['max_q_size'] = self.__get_value_from_yaml(cfg, 'max_q_size', 1024, int, required=False)
         d['iterations'] = self.__get_value_from_yaml(cfg, 'iterations', None, int, required=True)
         d['checkpoint_interval'] = self.__get_value_from_yaml(cfg, 'checkpoint_interval', 0, int, required=False)
-        d['training_view'] = self.__get_value_from_yaml(cfg, 'training_view', False, bool, required=False)
+        d['show_progress_flag'] = self.__get_value_from_yaml(cfg, 'show_progress', False, bool, required=False)
         d['fix_seed'] = self.__get_value_from_yaml(cfg, 'fix_seed', False, bool, required=False)
         return d
 
@@ -288,7 +288,7 @@ class Boilerplate(CheckpointManager):
         loss_str += f' loss : {loss:>8.4f}'
         print(loss_str, end='')
 
-    def training_view_function(self):
+    def show_progress(self):
         cur_time = time()
         if cur_time - self.training_view_previous_time > 3.0:
             self.training_view_previous_time = cur_time
@@ -297,11 +297,11 @@ class Boilerplate(CheckpointManager):
             img_x = self.train_data_generator.resize(img_x)
             img_y = self.predict(self.model, img_x)
             img_cat = np.concatenate([img_x, img_y], axis=1)
-            cv2.imshow('training_view', img_cat)
+            cv2.imshow('progress', img_cat)
             key = cv2.waitKey(1)
             if key == 27:
+                self.cfg.show_progress_flag = False
                 cv2.destroyAllWindows()
-                self.cfg.training_view = False
 
     def train(self):
         self.model.summary()
@@ -327,9 +327,9 @@ class Boilerplate(CheckpointManager):
             iteration_count += 1
             progress_str = eta_calculator.update(iteration_count)
             self.print_loss(progress_str, loss)
-            if self.cfg.training_view and iteration_count >= lr_scheduler.warm_up_iterations:
+            if self.cfg.show_progress_flag and iteration_count >= lr_scheduler.warm_up_iterations:
                 self.train_data_generator.pause()
-                self.training_view_function()
+                self.show_progress()
                 self.train_data_generator.resume()
             if iteration_count % 2000 == 0:
                 self.save_last_model(self.model, iteration_count)
