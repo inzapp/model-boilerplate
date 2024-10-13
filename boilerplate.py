@@ -25,7 +25,6 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 os.environ['KMP_AFFINITY'] = 'noverbose'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -144,7 +143,7 @@ class Boilerplate(CheckpointManager):
             exit(0)
 
         self.strategy, self.primary_context = self.get_context(self.cfg.devices)
-        self.optimizer = self.get_optimizer(self.cfg.optimizer_str, self.cfg.lr, self.cfg.momentum, self.cfg.lr_policy)
+        self.optimizer = self.get_optimizer(self.strategy, self.cfg.optimizer_str, self.cfg.lr, self.cfg.momentum, self.cfg.lr_policy)
 
         self.pretrained_iteration_count = 0
         if self.cfg.pretrained_model_path is None:
@@ -195,15 +194,16 @@ class Boilerplate(CheckpointManager):
                 strategy = tf.distribute.MirroredStrategy(devices=[f'/gpu:{i}' for i in user_devices])
         return strategy, primary_context
 
-    def get_optimizer(self, optimizer_str, lr, momentum, lr_policy):
+    def get_optimizer(self, strategy, optimizer_str, lr, momentum, lr_policy):
         available_optimizer_strs = ['sgd', 'adam']
         optimizer_str = optimizer_str.lower()
         assert optimizer_str in available_optimizer_strs, f'invalid optimizer {optimizer_str}, available optimizers : {available_optimizer_strs}'
         lr = lr if lr_policy == 'constant' else 0.0
-        if optimizer_str == 'sgd':
-            optimizer = tf.keras.optimizers.SGD(learning_rate=lr, momentum=momentum, nesterov=True)
-        elif optimizer_str == 'adam':
-            optimizer = tf.keras.optimizers.Adam(learning_rate=lr, beta_1=momentum)
+        with strategy.scope():
+            if optimizer_str == 'sgd':
+                optimizer = tf.keras.optimizers.SGD(learning_rate=lr, momentum=momentum, nesterov=True)
+            elif optimizer_str == 'adam':
+                optimizer = tf.keras.optimizers.Adam(learning_rate=lr, beta_1=momentum)
         return optimizer
 
     def load_model(self, path, strategy, optimizer):
